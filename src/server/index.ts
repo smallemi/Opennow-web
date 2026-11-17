@@ -5,6 +5,8 @@ import express from "express";
 
 import { registerApi } from "./api";
 import { applySiteBranding, siteBranding } from "./branding";
+import { SessionError } from "./gfn/errorCodes";
+import { toSerializedSessionError } from "@shared/sessionError";
 import { instanceAccess, instanceGateMiddleware, registerInstanceAccessRoutes } from "./instanceAccess";
 import { attachSignalingBridge } from "./signalingBridge";
 import { cacheManager } from "./services/cacheManager";
@@ -69,10 +71,30 @@ if (process.env.NODE_ENV === "production") {
   app.use(vite.middlewares);
 }
 
+function isHttpStatus(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 400 && value <= 599;
+}
+
 app.use((error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
-  const status = typeof error === "object" && error && "statusCode" in error && typeof error.statusCode === "number"
-    ? error.statusCode
-    : 500;
+  // CloudMatch errors carry NVIDIA's own statusCode (e.g. 69 = queue abandoned), which
+  // is not an HTTP status. Pass their details to the client so it can show the real reason.
+  if (error instanceof SessionError) {
+    const status = isHttpStatus(error.httpStatus) ? error.httpStatus : 502;
+    console.warn(`[Server] CloudMatch error ${error.errorType} (statusCode=${error.statusCode}, code=${error.gfnErrorCode}): ${error.message}`);
+    response.status(status).json({ error: error.message, sessionError: toSerializedSessionError({
+      httpStatus: error.httpStatus,
+      statusCode: error.statusCode,
+      statusDescription: error.statusDescription,
+      unifiedErrorCode: error.unifiedErrorCode,
+      sessionErrorCode: error.sessionErrorCode,
+      gfnErrorCode: error.gfnErrorCode,
+      title: error.title,
+      description: error.message,
+    }) });
+    return;
+  }
+  const candidate = typeof error === "object" && error && "statusCode" in error ? error.statusCode : undefined;
+  const status = isHttpStatus(candidate) ? candidate : 500;
   const message = error instanceof Error ? error.message : "Unexpected server error.";
   if (status >= 500) console.error("[Server]", error);
   response.status(status).json({ error: message });

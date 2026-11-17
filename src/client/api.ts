@@ -17,6 +17,7 @@ import {
   createUnsupportedNativeStreamerStatus,
 } from "@shared/gfn";
 import { unsupportedNativeCloudGsyncCapabilities } from "@shared/cloudGsync";
+import { isSerializedSessionError } from "@shared/sessionError";
 import type { BrowserSession, QrChallenge, QrPollResult } from "./types";
 import { WEB_DEFAULT_SETTINGS } from "./webDefaults";
 
@@ -34,11 +35,16 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string; code?: string } | null;
+    const payload = await response.json().catch(() => null) as { error?: string; code?: string; sessionError?: unknown } | null;
     if (response.status === 401 && payload?.code === "INSTANCE_LOCKED") {
       window.dispatchEvent(new Event(INSTANCE_LOCKED_EVENT));
     }
-    throw new Error(payload?.error ?? `Request failed (${response.status})`);
+    const error = new Error(payload?.error ?? `Request failed (${response.status})`);
+    // Keep CloudMatch details (gfnErrorCode, title, description) so launch errors show the real reason.
+    if (isSerializedSessionError(payload?.sessionError)) {
+      throw Object.assign(error, payload.sessionError, { message: error.message });
+    }
+    throw error;
   }
   if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;

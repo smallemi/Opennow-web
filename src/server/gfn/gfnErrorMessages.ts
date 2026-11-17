@@ -317,8 +317,9 @@ export const ERROR_MESSAGES: Map<number, ErrorMessageEntry> = new Map([
   [
     3237093701,
     {
-      title: "Queue Abandoned",
-      description: "Your session in queue was abandoned.",
+      title: "Removed From Queue",
+      description:
+        "GeForce NOW removed this session from the queue. This happens when the queue is left waiting without activity (for example the tab was closed or in the background, or queue ads were not played) or the session was ended elsewhere. Launch the game again to rejoin the queue.",
     },
   ],
   [
