@@ -6,6 +6,7 @@ import express from "express";
 import { registerApi } from "./api";
 import { applySiteBranding, siteBranding } from "./branding";
 import { SessionError } from "./gfn/errorCodes";
+import { queueAdsBlocked } from "./gfn/cloudmatchSessionParsing";
 import { toSerializedSessionError } from "@shared/sessionError";
 import { instanceAccess, instanceGateMiddleware, registerInstanceAccessRoutes } from "./instanceAccess";
 import { attachSignalingBridge } from "./signalingBridge";
@@ -46,6 +47,7 @@ app.use(instanceGateMiddleware());
 if (siteBranding.title || siteBranding.faviconUrl) {
   console.log(`[Branding] title=${siteBranding.title ?? "(default)"} favicon=${siteBranding.faviconUrl ?? "(default)"}`);
 }
+if (queueAdsBlocked()) console.log("[QueueAds] OPENNOW_BLOCK_QUEUE_ADS is on: queue ads are stripped from session responses.");
 if (instanceAccess.enabled) console.log("[Instance] Private mode enabled: a password is required to use this instance.");
 
 registerApi(app);

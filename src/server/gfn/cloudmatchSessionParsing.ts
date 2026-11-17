@@ -359,6 +359,16 @@ export interface ToSessionInfoOptions {
   fallbackAppLaunchMode?: number;
 }
 
+/**
+ * OPENNOW_BLOCK_QUEUE_ADS=true drops session.sessionAds / sessionAdsRequired from
+ * CloudMatch responses (like the uBlock rule
+ * `json-prune-fetch-response, session.sessionAds session.sessionAdsRequired`),
+ * so the client never plays or reports queue ads.
+ */
+export function queueAdsBlocked(env: NodeJS.ProcessEnv = process.env): boolean {
+  return /^(1|true|yes|on)$/i.test(env.OPENNOW_BLOCK_QUEUE_ADS?.trim() ?? "");
+}
+
 export async function toSessionInfo(options: ToSessionInfoOptions): Promise<SessionInfo> {
   const { zone, streamingBaseUrl, payload, clientId, deviceId } = options;
   if (payload.requestStatus.statusCode !== 1) {
@@ -370,7 +380,9 @@ export async function toSessionInfo(options: ToSessionInfoOptions): Promise<Sess
   const signaling = resolveSignaling(payload);
   const queuePosition = extractQueuePosition(payload);
   const seatSetupStep = extractSeatSetupStep(payload);
-  const adState = extractAdState(payload);
+  const adState = queueAdsBlocked()
+    ? { isAdsRequired: false, sessionAdsRequired: false, sessionAds: [], ads: [] }
+    : extractAdState(payload);
   const negotiatedStreamProfile = extractNegotiatedStreamProfile(payload);
   const requestedStreamingFeatures = normalizeStreamingFeatures(
     payload.session.sessionRequestData?.requestedStreamingFeatures,

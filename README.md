@@ -112,6 +112,7 @@ Settings are environment variables. Copy `.env.example` to `.env`, or pass them 
 | `OPENNOW_INSTANCE_REMEMBER_DAYS` | No | `30` | How long a "Remember this device" unlock lasts. |
 | `OPENNOW_SITE_TITLE` | No | `OpenNOW` | Text shown in the browser tab. |
 | `OPENNOW_FAVICON_URL` | No | OpenNOW logo | Tab icon: a full link (`https://example.com/icon.png`) or a path on this site (`/my-icon.png`, from `public/`). |
+| `OPENNOW_BLOCK_QUEUE_ADS` | No | `false` | `true` strips free-tier queue ads from NVIDIA's session responses so they are never played. Use at your own risk. |
 | `OPENNOW_DATA_DIR` | No | `.opennow-data` | Where the device ID, caches, and thumbnails are stored. |
 
 ### Example `.env`
