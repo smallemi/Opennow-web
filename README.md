@@ -171,6 +171,7 @@ Some networks (schools, offices, strict firewalls) block the direct UDP/TCP conn
 - **Quality is capped** while proxying, by default 720p60 at 10 Mbps. Change it with `OPENNOW_RELAY_MAX_*`. The cap is enforced on the server as well, not just in the browser.
 - **The region picker is hidden** while proxying, since the media leaves from your server anyway.
 - `optional` adds a *Proxy mode* toggle in **Settings → Stream**; `always` relays every stream.
+- **Chrome only for now:** works in Chrome and Chrome-based browsers (Edge, Brave, Opera). Firefox fails to connect to the relay.
 
 Setup:
 

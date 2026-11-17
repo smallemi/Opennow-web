@@ -855,8 +855,8 @@
     "proxyMode": {
       "title": "Proxy mode",
       "toggle": "Stream through this server",
-      "hint": "For networks that block direct game streaming. Video and input go through this server instead of straight to NVIDIA. Quality is limited to {{resolution}} and {{bitrate}} Mbps, and the server picks the region.",
-      "forcedHint": "This server relays every stream. Quality is limited to {{resolution}} and {{bitrate}} Mbps, and the server picks the region."
+      "hint": "For networks that block direct game streaming. Video and input go through this server instead of straight to NVIDIA. Quality is limited to {{resolution}} and {{bitrate}} Mbps, and the server picks the region. Only works in Chrome (and Chrome-based browsers like Edge); not in Firefox.",
+      "forcedHint": "This server relays every stream. Quality is limited to {{resolution}} and {{bitrate}} Mbps, and the server picks the region. Only works in Chrome (and Chrome-based browsers like Edge); not in Firefox."
     }
   },
   "navbar": {
