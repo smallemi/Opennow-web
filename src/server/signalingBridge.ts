@@ -6,6 +6,8 @@ import type { IceCandidatePayload, KeyframeRequest, SendAnswerRequest, Signaling
 import { GfnSignalingClient } from "./gfn/signaling";
 import { instanceAccess } from "./instanceAccess";
 import { getExistingSession } from "./sessionStore";
+import { clampNvstSdpToRelayLimits } from "@shared/relay";
+import { streamRelay } from "./relay";
 
 type ClientMessage =
   | { type: "connect"; payload: SignalingConnectRequest }
@@ -52,6 +54,7 @@ export function attachSignalingBridge(server: HttpServer): void {
     }
 
     let signaling: GfnSignalingClient | null = null;
+    let relayed = false;
     let unsubscribe: (() => void) | null = null;
     const send = (payload: unknown) => {
       if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
@@ -67,14 +70,23 @@ export function attachSignalingBridge(server: HttpServer): void {
           }
           signaling?.disconnect();
           unsubscribe?.();
+          relayed = streamRelay.isRelayed(input.sessionId);
+          const limits = streamRelay.config.limits;
+          const resolution = parseResolution(input.resolution);
           signaling = new GfnSignalingClient(input.signalingServer, input.sessionId, input.signalingUrl, {
             reconnect: input.reconnect === true,
-            resolution: parseResolution(input.resolution),
+            resolution: resolution && relayed
+              ? { width: Math.min(resolution.width, limits.maxWidth), height: Math.min(resolution.height, limits.maxHeight) }
+              : resolution,
           });
           unsubscribe = signaling.onEvent((event) => send({ type: "event", payload: event }));
           await signaling.connect();
         } else if (message.type === "answer") {
-          await signaling?.sendAnswer(message.payload);
+          const answer = message.payload;
+          // Proxy limits are enforced here too, so a modified client can't ask NVIDIA for more.
+          await signaling?.sendAnswer(relayed && answer.nvstSdp
+            ? { ...answer, nvstSdp: clampNvstSdpToRelayLimits(answer.nvstSdp, streamRelay.config.limits) }
+            : answer);
         } else if (message.type === "ice") {
           await signaling?.sendIceCandidate(message.payload);
         } else if (message.type === "keyframe") {

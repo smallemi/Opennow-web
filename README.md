@@ -20,6 +20,7 @@ No Electron, no native streamer. Just a Node server and your browser.
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Private instance](#private-instance)
+- [Proxy mode](#proxy-mode)
 - [Production deployment](#production-deployment)
 - [Development checks](#development-checks)
 - [Troubleshooting](#troubleshooting)
@@ -58,6 +59,7 @@ Streams used to fail with `Resume attach failed` / `signaling connection closed`
 ### New features
 
 - 🔒 **[Private instance](#private-instance)**: an optional password gate, turned on with an environment variable.
+- 🛰️ **[Proxy mode](#proxy-mode)**: relay streams through the server for networks that block direct streaming, with env-configurable quality limits.
 - 🏷️ **Custom branding**: set the tab title and favicon with `OPENNOW_SITE_TITLE` and `OPENNOW_FAVICON_URL`.
 - 📶 **Proxy-friendly streaming**: a keepalive on the signaling bridge, so Cloudflare's 100-second idle timeout no longer ends running streams.
 
@@ -113,6 +115,15 @@ Settings are environment variables. Copy `.env.example` to `.env`, or pass them 
 | `OPENNOW_SITE_TITLE` | No | `OpenNOW` | Text shown in the browser tab. |
 | `OPENNOW_FAVICON_URL` | No | OpenNOW logo | Tab icon: a full link (`https://example.com/icon.png`) or a path on this site (`/my-icon.png`, from `public/`). |
 | `OPENNOW_BLOCK_QUEUE_ADS` | No | `false` | `true` strips free-tier queue ads from NVIDIA's session responses so they are never played. Use at your own risk. |
+| `OPENNOW_RELAY` | No | `off` | [Proxy mode](#proxy-mode): `optional` (visitors can turn it on) or `always`. |
+| `OPENNOW_RELAY_HOST` | With proxy mode | none | Hostname for TURN. Behind Cloudflare, a DNS-only record pointing at the server. |
+| `OPENNOW_RELAY_PORT` | No | `3478` | Public TCP port for TURN. |
+| `OPENNOW_RELAY_TLS_CERT` / `OPENNOW_RELAY_TLS_KEY` | No | none | Certificate and key paths to serve TURN over TLS (`turns:`). |
+| `OPENNOW_RELAY_IP` | No | auto-detected | The server's public IPv4, if it is behind NAT. |
+| `OPENNOW_RELAY_UDP_PORTS` | No | `49152-65535` | UDP range the relay uses towards NVIDIA. |
+| `OPENNOW_RELAY_MAX_RESOLUTION` | No | `1280x720` | Highest resolution for relayed streams. |
+| `OPENNOW_RELAY_MAX_FPS` | No | `60` | Highest frame rate for relayed streams. |
+| `OPENNOW_RELAY_MAX_BITRATE_MBPS` | No | `10` | Highest bitrate for relayed streams. |
 | `OPENNOW_DATA_DIR` | No | `.opennow-data` | Where the device ID, caches, and thumbnails are stored. |
 
 ### Example `.env`
@@ -149,6 +160,35 @@ Leave the variable unset or empty to keep the instance public.
 
 > [!NOTE]
 > Behind a reverse proxy, every visitor appears to come from the proxy's IP, so one person's wrong guesses can block everyone. Configure Express [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) so the real client IP is used.
+
+---
+
+## Proxy mode
+
+Some networks (schools, offices, strict firewalls) block the direct UDP/TCP connection a game stream needs. Proxy mode sends the stream through your server instead: browser → TURN relay on your server → NVIDIA.
+
+- **TURN runs on its own TCP port** (default `3478`), so nginx keeps port 443 and no existing site config changes.
+- **Quality is capped** while proxying, by default 720p60 at 10 Mbps. Change it with `OPENNOW_RELAY_MAX_*`. The cap is enforced on the server as well, not just in the browser.
+- **The region picker is hidden** while proxying, since the media leaves from your server anyway.
+- `optional` adds a *Proxy mode* toggle in **Settings → Stream**; `always` relays every stream.
+
+Setup:
+
+1. Add a **DNS-only** (grey cloud) record, e.g. `turn.example.com`, pointing at the server. Cloudflare's proxy only carries web traffic, so TURN can't go through it.
+2. Open TCP `OPENNOW_RELAY_PORT` inbound, and UDP `OPENNOW_RELAY_UDP_PORTS` in and out.
+3. Set the variables and restart:
+
+   ```bash
+   OPENNOW_RELAY=optional
+   OPENNOW_RELAY_HOST=turn.example.com
+   OPENNOW_RELAY_PORT=3478
+   ```
+
+4. Optional: for TURN over TLS (looks like normal HTTPS traffic to firewalls), set `OPENNOW_RELAY_TLS_CERT` and `OPENNOW_RELAY_TLS_KEY` to a certificate for that hostname (Let's Encrypt; Cloudflare origin certificates are not trusted by browsers). Using a port like `5349` or `8443` helps on networks that only allow common ports.
+
+Every relayed stream uses the server's bandwidth twice (in from NVIDIA, out to the visitor), so 10 Mbps per player means about 20 Mbps of server traffic. The DNS-only record also reveals the server's IP address.
+
+The relay is the [`dlpcc`](https://www.npmjs.com/package/dlpcc) TURN server (AGPL-3.0), started by OpenNOW itself; it only relays to public addresses and only accepts short-lived credentials handed to signed-in visitors.
 
 ---
 

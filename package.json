@@ -24,6 +24,7 @@
   "dependencies": {
     "@react-three/fiber": "^9.6.1",
     "@vitejs/plugin-react": "^5.2.0",
+    "dlpcc": "^0.3.0",
     "express": "^5.1.0",
     "lucide-react": "^0.468.0",
     "motion": "^12.42.0",

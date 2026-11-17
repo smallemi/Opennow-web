@@ -1,5 +1,5 @@
 import {
-  Check, Globe, Heart, MapPin, Monitor, ScanLine, Gauge, Film, SlidersHorizontal, HardDrive, Sparkles, Wifi, Zap, Search, X, Cpu,
+  Check, Globe, Heart, MapPin, Shield, Monitor, ScanLine, Gauge, Film, SlidersHorizontal, HardDrive, Sparkles, Wifi, Zap, Search, X, Cpu,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from "react";
 import { m } from "motion/react";
@@ -20,6 +20,7 @@ import {
 import { isZortosCommunityProxyUrl, ZORTOS_GITHUB_SPONSORS_URL } from "@shared/communityProxy";
 import { getCodecDecodeBadgeState, shouldShowLinuxHardwareCodecHint, type CodecTestResult } from "../../../lib/codecDiagnostics";
 import { useTranslation } from "../../../i18n";
+import { setProxyModeEnabled, useRelayMode } from "../../../lib/relayMode";
 import {
   clearStoredRegionPingResults,
   loadStoredRegionPingResults,
@@ -76,6 +77,7 @@ export function SettingsStreamSection({
   const { locale, t } = useTranslation();
   const [regionSearch, setRegionSearch] = useState("");
   const [regionDropdownOpen, setRegionDropdownOpen] = useState(false);
+  const relayMode = useRelayMode();
   const codecTestOpen = codecResults !== null || codecTesting;
   const [codecAdvancedOpen, setCodecAdvancedOpen] = useState(false);
   const [resolutionDropdownOpen, setResolutionDropdownOpen] = useState(false);
@@ -388,8 +390,43 @@ export function SettingsStreamSection({
   return (
     <>
       <>
+        {/* ── Proxy mode ── */}
+        {showStreamRegion && relayMode.status?.available && (
+        <section className="settings-section">
+          {showAll && <div className="settings-section-context">{t("settings.sections.stream")}</div>}
+          <div className="settings-section-header">
+            <Shield size={18} />
+            <h2>{t("settings.proxyMode.title")}</h2>
+          </div>
+          <div className="settings-rows">
+            <div className="settings-row settings-row--column">
+              <div className="settings-row-top settings-row-top--compact">
+                <label className="settings-label settings-label--wrap">
+                  <span className="settings-label-title">{t("settings.proxyMode.toggle")}</span>
+                </label>
+                <label className="settings-toggle">
+                  <input
+                    type="checkbox"
+                    checked={relayMode.active}
+                    disabled={relayMode.status.forced}
+                    onChange={(e) => setProxyModeEnabled(e.target.checked)}
+                  />
+                  <span className="settings-toggle-track" />
+                </label>
+              </div>
+              <span className="settings-subtle-hint">
+                {t(relayMode.status.forced ? "settings.proxyMode.forcedHint" : "settings.proxyMode.hint", {
+                  resolution: `${relayMode.status.limits.maxHeight}p${relayMode.status.limits.maxFps}`,
+                  bitrate: String(relayMode.status.limits.maxBitrateMbps),
+                })}
+              </span>
+            </div>
+          </div>
+        </section>
+        )}
+
         {/* ── Region ── */}
-        {showStreamRegion && (
+        {showStreamRegion && !relayMode.active && (
         <section className="settings-section settings-section--dropdown">
           {showAll && <div className="settings-section-context">{t("settings.sections.stream")}</div>}
           <div className="settings-section-header">

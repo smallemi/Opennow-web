@@ -107,6 +107,8 @@ interface OfferSettings {
   fps: number;
   maxBitrateKbps: number;
   nativeTransitionDiagnostics?: NativeTransitionDiagnostics;
+  /** Proxy mode: send all media through these TURN servers only. */
+  relayIceServers?: RTCIceServer[];
 }
 
 interface RiInputCapabilities {
@@ -4380,11 +4382,16 @@ export class GfnWebRtcClient {
       }
     }
 
+    const relayIceServers = settings.relayIceServers?.length ? settings.relayIceServers : null;
     const rtcConfig: RTCConfiguration = {
-      iceServers: toRtcIceServers(session.iceServers),
+      iceServers: relayIceServers ?? toRtcIceServers(session.iceServers),
       bundlePolicy: "max-bundle",
       rtcpMuxPolicy: "require",
+      ...(relayIceServers ? { iceTransportPolicy: "relay" as const } : {}),
     };
+    if (relayIceServers) {
+      this.log(`Proxy mode: relaying media through ${relayIceServers.flatMap((server) => server.urls).join(", ")}`);
+    }
 
     const pc = new RTCPeerConnection(rtcConfig);
     this.pc = pc;

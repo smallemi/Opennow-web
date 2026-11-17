@@ -9,6 +9,8 @@ import { claimSession, createSession, getActiveSessions, pollSession, reportSess
 import { fetchSubscription } from "./gfn/subscription";
 import { getLoginProviders } from "./webAuth";
 import { getSession } from "./sessionStore";
+import { clampToRelayLimits } from "@shared/relay";
+import { streamRelay } from "./relay";
 
 function asyncRoute(handler: (request: Request, response: Response) => Promise<void>) {
   return (request: Request, response: Response, next: NextFunction) => {
@@ -58,6 +60,17 @@ export function registerApi(app: Express): void {
     const { regions, vpcId } = await state.regions();
     const subscription = await fetchSubscription(token, auth.user.userId, vpcId ?? undefined).catch(() => null);
     response.json({ session: state.publicSession(), regions, subscription });
+  }));
+
+  app.get("/api/relay/status", (_request, response) => {
+    response.json(streamRelay.status());
+  });
+
+  app.get("/api/relay/ice", asyncRoute(async (request, response) => {
+    await getSession(request, response).requireAuth();
+    const config = streamRelay.iceConfig();
+    if (!config) throw Object.assign(new Error("Proxy mode is not available on this server."), { statusCode: 404 });
+    response.json(config);
   }));
 
   app.get("/api/regions", asyncRoute(async (request, response) => {
@@ -158,16 +171,19 @@ export function registerApi(app: Express): void {
     );
     if (!appId) throw Object.assign(new Error("This game does not expose a launchable GFN app ID."), { statusCode: 400 });
 
-    const input = request.body as Omit<SessionCreateRequest, "token" | "appId" | "streamingBaseUrl">;
+    const input = request.body as Omit<SessionCreateRequest, "token" | "appId" | "streamingBaseUrl"> & { useRelay?: boolean };
+    const relayed = streamRelay.wants(input.useRelay);
+    const settings = { ...input.settings, clientMode: "web" as const, transportMode: "webrtc" as const };
     const session = await createSession({
       ...input,
       appId,
       token: auth.tokens.idToken ?? auth.tokens.accessToken,
       streamingBaseUrl: auth.provider.streamingServiceUrl,
       internalTitle: String(input.internalTitle || appId),
-      settings: { ...input.settings, clientMode: "web", transportMode: "webrtc" },
+      settings: relayed ? clampToRelayLimits(settings, streamRelay.config.limits) : settings,
     });
     state.addActiveSession(session.sessionId);
+    if (relayed) streamRelay.markRelayed(session.sessionId);
     response.json(session);
   }));
 
@@ -203,14 +219,17 @@ export function registerApi(app: Express): void {
   app.post("/api/stream/claim", asyncRoute(async (request, response) => {
     const state = getSession(request, response);
     const auth = await state.requireAuth();
-    const input = request.body as SessionClaimRequest;
+    const input = request.body as SessionClaimRequest & { useRelay?: boolean };
+    const relayed = streamRelay.wants(input.useRelay) || streamRelay.isRelayed(input.sessionId);
+    const settings = input.settings ? { ...input.settings, clientMode: "web" as const, transportMode: "webrtc" as const } : undefined;
     const claimed = await claimSession({
       ...input,
       token: auth.tokens.idToken ?? auth.tokens.accessToken,
       streamingBaseUrl: input.streamingBaseUrl ?? auth.provider.streamingServiceUrl,
-      settings: input.settings ? { ...input.settings, clientMode: "web", transportMode: "webrtc" } : undefined,
+      settings: settings && relayed ? clampToRelayLimits(settings, streamRelay.config.limits) : settings,
     });
     state.addActiveSession(claimed.sessionId);
+    if (relayed) streamRelay.markRelayed(claimed.sessionId);
     response.json(claimed);
   }));
 
@@ -227,6 +246,7 @@ export function registerApi(app: Express): void {
       streamingBaseUrl: input.streamingBaseUrl ?? auth.provider.streamingServiceUrl,
     });
     state.removeActiveSession(input.sessionId);
+    streamRelay.forget(input.sessionId);
     response.status(204).end();
   }));
 }

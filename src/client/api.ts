@@ -20,6 +20,7 @@ import { unsupportedNativeCloudGsyncCapabilities } from "@shared/cloudGsync";
 import { isSerializedSessionError } from "@shared/sessionError";
 import type { BrowserSession, QrChallenge, QrPollResult } from "./types";
 import { WEB_DEFAULT_SETTINGS } from "./webDefaults";
+import { applyRelayLimits, getRelayModeState } from "./lib/relayMode";
 
 /** Fired when the server reports that the private instance needs to be unlocked again. */
 export const INSTANCE_LOCKED_EVENT = "opennow:instance-locked";
@@ -298,12 +299,12 @@ const bridge: OpenNowApi = {
   markGameOwned: (input) => api("/api/mark-owned", { method: "POST", body: JSON.stringify(input) }),
   getPendingDirectLaunchRequest: async () => null,
   onDirectLaunchRequest: () => () => {},
-  createSession: (input) => api("/api/stream/create", { method: "POST", body: JSON.stringify({ ...input, token: undefined, settings: { ...input.settings, clientMode: "web", transportMode: "webrtc" } }) }),
+  createSession: (input) => api("/api/stream/create", { method: "POST", body: JSON.stringify({ ...input, token: undefined, useRelay: getRelayModeState().active, settings: applyRelayLimits({ ...input.settings, clientMode: "web", transportMode: "webrtc" }) }) }),
   pollSession: (input) => api("/api/stream/poll", { method: "POST", body: JSON.stringify({ ...input, token: undefined }) }),
   reportSessionAd: (input) => api("/api/stream/report-ad", { method: "POST", body: JSON.stringify({ ...input, token: undefined }) }),
   stopSession: (input) => api("/api/stream/stop", { method: "POST", body: JSON.stringify({ ...input, token: undefined }) }),
   getActiveSessions: async () => (await api<{ sessions: Awaited<ReturnType<OpenNowApi["getActiveSessions"]>> }>("/api/active-sessions")).sessions,
-  claimSession: (input) => api("/api/stream/claim", { method: "POST", body: JSON.stringify({ ...input, token: undefined, settings: input.settings ? { ...input.settings, clientMode: "web", transportMode: "webrtc" } : undefined }) }),
+  claimSession: (input) => api("/api/stream/claim", { method: "POST", body: JSON.stringify({ ...input, token: undefined, useRelay: getRelayModeState().active, settings: input.settings ? applyRelayLimits({ ...input.settings, clientMode: "web", transportMode: "webrtc" }) : undefined }) }),
   getNativeStreamerStatus: async () => createUnsupportedNativeStreamerStatus(),
   getNativeCloudGsyncCapabilities: async () => unsupportedNativeCloudGsyncCapabilities("Browser WebRTC mode"),
   showSessionConflictDialog: async () => "resume",

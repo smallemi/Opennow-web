@@ -10,6 +10,7 @@ import { queueAdsBlocked } from "./gfn/cloudmatchSessionParsing";
 import { toSerializedSessionError } from "@shared/sessionError";
 import { instanceAccess, instanceGateMiddleware, registerInstanceAccessRoutes } from "./instanceAccess";
 import { attachSignalingBridge } from "./signalingBridge";
+import { streamRelay } from "./relay";
 import { cacheManager } from "./services/cacheManager";
 import { cookieSessionMiddleware } from "./sessionStore";
 
@@ -103,6 +104,7 @@ app.use((error: unknown, _request: express.Request, response: express.Response, 
 });
 
 await cacheManager.initialize();
+await streamRelay.start();
 server.listen(port, () => {
   console.log(`OpenNOW Web is running at http://localhost:${port}`);
 });

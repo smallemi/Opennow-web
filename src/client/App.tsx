@@ -86,6 +86,7 @@ import {
 } from "./lib/queueAds";
 import { clearRuntimeSnapshot, loadRuntimeSnapshot, saveRuntimeSnapshot, type RuntimeSnapshot } from "./lib/runtimeSnapshot";
 import { getEnabledSessionProxyUrl } from "./lib/sessionProxy";
+import { applyRelayLimits, fetchRelayIceConfig, getRelayModeState, useRelayMode } from "./lib/relayMode";
 import {
   getSessionLimitSecondsForTier,
   getLocalSessionTimerWarning,
@@ -243,6 +244,7 @@ export function App(): JSX.Element {
   const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [releaseHighlightsPayload, setReleaseHighlightsPayload] = useState<ReleaseHighlightsPayload | null>(null);
   const [releaseHighlightsIsAuto, setReleaseHighlightsIsAuto] = useState(false);
+  const relayMode = useRelayMode();
   const activeSessionProxyUrl = useMemo(
     () => getEnabledSessionProxyUrl(settings),
     [settings.sessionProxyEnabled, settings.sessionProxyUrl],
@@ -996,12 +998,13 @@ export function App(): JSX.Element {
 
   // Derived state
 
+  // In proxy mode media leaves from this server, so picking a region near the visitor is pointless.
   const effectiveStreamingBaseUrl = useMemo(() => {
-    if (settings.region.trim()) {
+    if (settings.region.trim() && !relayMode.active) {
       return settings.region;
     }
     return selectedProvider?.streamingServiceUrl ?? "";
-  }, [selectedProvider, settings.region]);
+  }, [selectedProvider, settings.region, relayMode.active]);
 
   const resolveSubscriptionInfoForLaunch = useCallback(async (): Promise<SubscriptionInfo | null> => {
     if (subscriptionInfo) {
@@ -2251,13 +2254,21 @@ export function App(): JSX.Element {
           const client = ensureWebRtcClient();
 
           if (client) {
+            const relayActive = getRelayModeState().active;
+            const relayIce = relayActive ? await fetchRelayIceConfig() : null;
+            const offerProfile = applyRelayLimits({
+              resolution: settings.resolution,
+              fps: settings.fps,
+              maxBitrateMbps: settings.maxBitrateMbps,
+            });
             await client.handleOffer(event.sdp, activeSession, {
               codec: settings.codec,
               colorQuality: settings.colorQuality,
-              resolution: settings.resolution,
-              fps: settings.fps,
-              maxBitrateKbps: settings.maxBitrateMbps * 1000,
+              resolution: offerProfile.resolution,
+              fps: offerProfile.fps,
+              maxBitrateKbps: offerProfile.maxBitrateMbps * 1000,
               nativeTransitionDiagnostics: settings.nativeTransitionDiagnostics,
+              relayIceServers: relayIce?.iceServers,
             });
             setLaunchError(null);
             setStreamStatus("streaming");
@@ -2972,7 +2983,7 @@ export function App(): JSX.Element {
       void handlePlayGame(game);
       return;
     }
-    if (settings.hideServerSelector) {
+    if (settings.hideServerSelector || relayMode.active) {
       setQueueModalData(null);
       void handlePlayGame(game);
       return;
@@ -3023,7 +3034,7 @@ export function App(): JSX.Element {
       return;
     }
     void handlePlayGame(game);
-  }, [subscriptionInfo, authSession, selectedProvider, settings.hideServerSelector, streamStatus, handlePlayGame, effectiveStreamingBaseUrl]);
+  }, [subscriptionInfo, authSession, selectedProvider, settings.hideServerSelector, relayMode.active, streamStatus, handlePlayGame, effectiveStreamingBaseUrl]);
 
   const handleQueueModalConfirm = useCallback((zoneUrl: string | null) => {
     const game = queueModalGame;
