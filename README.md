@@ -188,6 +188,84 @@ Setup:
 
 4. Optional: for TURN over TLS (looks like normal HTTPS traffic to firewalls), set `OPENNOW_RELAY_TLS_CERT` and `OPENNOW_RELAY_TLS_KEY` to a certificate for that hostname (Let's Encrypt; Cloudflare origin certificates are not trusted by browsers). Using a port like `5349` or `8443` helps on networks that only allow common ports.
 
+### Proxy mode on port 443
+
+Strict networks often allow only web traffic on port 443. If nginx (or another server) already owns 443, you can still offer the relay there. In both setups below, OpenNOW keeps listening on `OPENNOW_RELAY_PORT` (e.g. `3478`) with its own certificate, and `OPENNOW_RELAY_PUBLIC_PORT=443` tells browsers to connect on 443:
+
+```bash
+OPENNOW_RELAY=optional
+OPENNOW_RELAY_HOST=turn.example.com
+OPENNOW_RELAY_PORT=3478
+OPENNOW_RELAY_PUBLIC_PORT=443
+OPENNOW_RELAY_TLS_CERT=/path/to/fullchain.pem
+OPENNOW_RELAY_TLS_KEY=/path/to/privkey.pem
+```
+
+The startup log then shows `turns:turn.example.com:443 (TCP, listening on 3478)`.
+
+#### Option A: site behind Cloudflare, no nginx changes (firewall redirect)
+
+When every website on the server is reached through Cloudflare, all their traffic on 443 comes from Cloudflare's IP ranges, while the DNS-only `turn.` name is reached directly. A firewall rule sends everything on 443 that is *not* from Cloudflare to the relay; nginx keeps receiving Cloudflare's traffic as before.
+
+```bash
+sudo apt install ipset ipset-persistent iptables-persistent
+
+# Cloudflare's IPv4 ranges
+sudo ipset create cloudflare hash:net
+for net in $(curl -s https://www.cloudflare.com/ips-v4); do sudo ipset add cloudflare "$net"; done
+
+# 443 from anyone who isn't Cloudflare -> relay on 3478
+sudo iptables -t nat -A PREROUTING -p tcp --dport 443 \
+  -m set ! --match-set cloudflare src -j REDIRECT --to-ports 3478
+
+sudo netfilter-persistent save   # keep it after reboots
+```
+
+- Only do this if *no* site on the server is reached directly (grey cloud) on 443, or that site stops working.
+- Refresh the `cloudflare` set now and then; if Cloudflare adds a range you don't have, that traffic would go to the relay.
+- To undo it, run the same `iptables` command with `-D` instead of `-A`.
+
+#### Option B: nginx shares 443 by hostname (`stream` + `ssl_preread`)
+
+nginx reads the hostname at the start of each TLS connection without decrypting it and passes `turn.example.com` straight to the relay; everything else goes to your sites. This works with or without Cloudflare, but **every site's `listen 443` has to move to an internal port**, because only one thing can listen on 443. This follows the nginx setup from the [dlpcc README](https://www.npmjs.com/package/dlpcc).
+
+1. Create `/etc/nginx/opennow-turn-stream.conf`:
+
+   ```nginx
+   stream {
+       map $ssl_preread_server_name $opennow_upstream {
+           turn.example.com  127.0.0.1:3478;  # OpenNOW relay (handles TLS itself)
+           default           127.0.0.1:8443;  # your sites, moved here
+       }
+
+       server {
+           listen 443;
+           listen [::]:443;
+           ssl_preread on;
+           proxy_pass $opennow_upstream;
+           proxy_timeout 1h;  # keep long TURN sessions alive
+       }
+   }
+   ```
+
+2. Include it at the **top level** of `/etc/nginx/nginx.conf` (next to `http {}`, not inside it):
+
+   ```nginx
+   include /etc/nginx/opennow-turn-stream.conf;
+   ```
+
+   Debian/Ubuntu's `nginx` package has the `stream` modules. On some distros you also need `load_module modules/ngx_stream_module.so;`.
+
+3. In **every** site with `listen 443 ssl`, move it to the internal port (keep `server_name`, certificates and everything else as they are):
+
+   ```nginx
+   listen 127.0.0.1:8443 ssl;
+   ```
+
+   Sites then see `127.0.0.1` as the client address. Behind Cloudflare that doesn't matter if you already use `CF-Connecting-IP`; otherwise see nginx's PROXY protocol docs (don't enable it for the relay upstream, it doesn't understand it).
+
+4. `sudo nginx -t && sudo systemctl reload nginx`, then restart OpenNOW. Port `3478` can be closed in the firewall now; only 443 (TCP) and the UDP relay range need to be open.
+
 Every relayed stream uses the server's bandwidth twice (in from NVIDIA, out to the visitor), so 10 Mbps per player means about 20 Mbps of server traffic. The DNS-only record also reveals the server's IP address.
 
 The relay is the [`dlpcc`](https://www.npmjs.com/package/dlpcc) TURN server (AGPL-3.0), started by OpenNOW itself; it only relays to public addresses and only accepts short-lived credentials handed to signed-in visitors.
