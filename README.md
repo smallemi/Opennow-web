@@ -52,6 +52,20 @@ Important deployment notes:
 - Set `OPENNOW_ORIGIN` to the exact public origin so signaling WebSocket origin checks are strict.
 - Do not deploy the Vite development server publicly.
 
+## Private instance
+
+Set `OPENNOW_INSTANCE_PASSWORD` to require a password before anyone can use the instance. Leave it unset for a public instance.
+
+```sh
+OPENNOW_INSTANCE_PASSWORD="your-instance-password" npm run dev
+```
+
+- Visitors see a password screen first. After unlocking, the browser keeps an httpOnly cookie, so reopening the tab does not ask again.
+- With "Remember this device" checked, the unlock lasts `OPENNOW_INSTANCE_REMEMBER_DAYS` days (default 30), even across browser restarts. Unchecked, it lasts until the browser is closed.
+- Unlocks survive server restarts. Changing the password (or `SESSION_SECRET`) locks everyone out again.
+- Private mode is controlled only by the server environment; visitors cannot turn it on or off.
+- Failed attempts are rate limited to 10 per 15 minutes per IP. Behind a reverse proxy, configure Express `trust proxy` so the real client IP is used.
+
 ## Checks
 
 ```bash

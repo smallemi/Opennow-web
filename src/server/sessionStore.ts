@@ -31,7 +31,7 @@ if (process.env.NODE_ENV === "production" && (!configuredSecret || configuredSec
 const sessionSecret = configuredSecret || randomBytes(32).toString("base64url");
 const encryptionKey = createHash("sha256").update(sessionSecret).digest();
 
-function parseCookies(value: string | undefined): Record<string, string> {
+export function parseCookies(value: string | undefined): Record<string, string> {
   return Object.fromEntries((value ?? "").split(";").flatMap((item) => {
     const index = item.indexOf("=");
     if (index < 1) return [];

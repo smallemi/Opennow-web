@@ -20,6 +20,9 @@ import { unsupportedNativeCloudGsyncCapabilities } from "@shared/cloudGsync";
 import type { BrowserSession, QrChallenge, QrPollResult } from "./types";
 import { WEB_DEFAULT_SETTINGS } from "./webDefaults";
 
+/** Fired when the server reports that the private instance needs to be unlocked again. */
+export const INSTANCE_LOCKED_EVENT = "opennow:instance-locked";
+
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const response = await fetch(path, {
     ...init,
@@ -31,7 +34,10 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     },
   });
   if (!response.ok) {
-    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    const payload = await response.json().catch(() => null) as { error?: string; code?: string } | null;
+    if (response.status === 401 && payload?.code === "INSTANCE_LOCKED") {
+      window.dispatchEvent(new Event(INSTANCE_LOCKED_EVENT));
+    }
     throw new Error(payload?.error ?? `Request failed (${response.status})`);
   }
   if (response.status === 204) return undefined as T;

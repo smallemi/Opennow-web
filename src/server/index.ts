@@ -3,6 +3,7 @@ import { resolve } from "node:path";
 import express from "express";
 
 import { registerApi } from "./api";
+import { instanceAccess, instanceGateMiddleware, registerInstanceAccessRoutes } from "./instanceAccess";
 import { attachSignalingBridge } from "./signalingBridge";
 import { cacheManager } from "./services/cacheManager";
 import { cookieSessionMiddleware } from "./sessionStore";
@@ -35,6 +36,10 @@ app.use((request, _response, next) => {
   }
   next();
 });
+
+registerInstanceAccessRoutes(app);
+app.use(instanceGateMiddleware());
+if (instanceAccess.enabled) console.log("[Instance] Private mode enabled: a password is required to use this instance.");
 
 registerApi(app);
 attachSignalingBridge(server);

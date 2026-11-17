@@ -4,6 +4,7 @@ import { WebSocketServer, WebSocket } from "ws";
 
 import type { IceCandidatePayload, KeyframeRequest, SendAnswerRequest, SignalingConnectRequest } from "@shared/gfn";
 import { GfnSignalingClient } from "./gfn/signaling";
+import { instanceAccess } from "./instanceAccess";
 import { getExistingSession } from "./sessionStore";
 
 type ClientMessage =
@@ -33,7 +34,7 @@ export function attachSignalingBridge(server: HttpServer): void {
 
   server.on("upgrade", (request, socket: Duplex, head) => {
     const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
-    if (url.pathname !== "/api/signaling" || !originAllowed(request)) {
+    if (url.pathname !== "/api/signaling" || !originAllowed(request) || !instanceAccess.isUnlocked(request)) {
       socket.destroy();
       return;
     }

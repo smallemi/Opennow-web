@@ -10689,3 +10689,34 @@ button.game-card-store-chip.owned.active:hover {
     opacity: 0;
   }
 }
+
+/* Private instance gate */
+.instance-gate-checking {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 120px;
+}
+
+.instance-gate-input {
+  cursor: text;
+}
+
+.instance-gate-remember {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 16px;
+  color: var(--ink-muted, var(--ink));
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.instance-gate-remember input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

@@ -2,6 +2,19 @@
   "common": {
     "loading": "Loading..."
   },
+  "instance": {
+    "title": "Private instance",
+    "description": "This OpenNOW instance is password protected. Enter the instance password to continue.",
+    "passwordLabel": "Instance password",
+    "remember": "Remember this device",
+    "unlock": "Unlock",
+    "retry": "Retry",
+    "unavailableTitle": "Can't reach this instance",
+    "unavailableDescription": "The OpenNOW server didn't respond. Check your connection and try again.",
+    "errors": {
+      "generic": "Couldn't unlock the instance. Try again."
+    }
+  },
   "app": {
     "name": "OpenNOW",
     "tagline": "Open-source cloud gaming client",
