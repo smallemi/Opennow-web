@@ -43,8 +43,11 @@ describe("encrypted cookie sessions", () => {
 
   it("rejects a modified cookie instead of accepting forged profile state", () => {
     const encrypted = cookieSessionInternals.encrypt(snapshot("alice"));
-    const replacement = encrypted.endsWith("A") ? "B" : "A";
-    const tampered = `${encrypted.slice(0, -1)}${replacement}`;
+    // Flip a character in the middle: the last base64url character can carry only
+    // padding bits, so changing it does not always change the decoded bytes.
+    const index = Math.floor(encrypted.length / 2);
+    const replacement = encrypted[index] === "A" ? "B" : "A";
+    const tampered = `${encrypted.slice(0, index)}${replacement}${encrypted.slice(index + 1)}`;
     expect(cookieSessionInternals.decrypt(tampered)).toBeNull();
   });
 
