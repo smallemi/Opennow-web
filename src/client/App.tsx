@@ -2107,6 +2107,11 @@ export function App(): JSX.Element {
         },
         onIceConnectionStateChange: (iceState) => {
           latestIceConnectionStateRef.current = iceState;
+          // NVIDIA can deliver its candidates inside the offer SDP, so a connected ICE
+          // transport is the reliable proof that the remote side is reachable.
+          if (iceState === "connected" || iceState === "completed") {
+            hasConfirmedRemoteIceRef.current = true;
+          }
           if (iceDisconnectedRecoveryTimerRef.current !== null) {
             window.clearTimeout(iceDisconnectedRecoveryTimerRef.current);
             iceDisconnectedRecoveryTimerRef.current = null;
@@ -2394,6 +2399,17 @@ export function App(): JSX.Element {
             iceState === "checking"
           ) {
             console.log(`[Recovery] Ignoring signaling disconnect while ICE state is ${iceState}`);
+            return;
+          }
+          // Media flows peer-to-peer once streaming; losing the signaling bridge (e.g. a
+          // proxy idle timeout) must not trigger a reconnect sign-in, which makes NVIDIA
+          // drop the running peer. ICE-failure recovery still handles real media loss.
+          if (
+            hasConfirmedRemoteIceRef.current
+            && streamStatusRef.current === "streaming"
+            && isGenericSignalingClose(event.reason)
+          ) {
+            console.log(`[Recovery] Ignoring signaling bridge close during an established stream (ICE ${iceState})`);
             return;
           }
           // A generic socket close before remote ICE (e.g. a 1006 drop) is neither a

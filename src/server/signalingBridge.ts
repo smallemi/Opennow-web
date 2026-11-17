@@ -12,7 +12,10 @@ type ClientMessage =
   | { type: "answer"; payload: SendAnswerRequest }
   | { type: "ice"; payload: IceCandidatePayload }
   | { type: "keyframe"; payload: KeyframeRequest }
-  | { type: "disconnect" };
+  | { type: "disconnect" }
+  | { type: "pong" };
+
+const BRIDGE_KEEPALIVE_MS = 25_000;
 
 function parseResolution(value: unknown): { width: number; height: number } | undefined {
   if (typeof value !== "string") return undefined;
@@ -82,7 +85,13 @@ export function attachSignalingBridge(server: HttpServer): void {
       })().catch((error) => send({ type: "event", payload: { type: "error", message: error instanceof Error ? error.message : String(error) } }));
     });
 
+    // Reverse proxies (Cloudflare closes WebSockets after ~100 s without data) would
+    // otherwise drop this mostly idle bridge mid-stream, so keep data flowing.
+    const keepalive = setInterval(() => send({ type: "ping", at: Date.now() }), BRIDGE_KEEPALIVE_MS);
+    keepalive.unref?.();
+
     socket.on("close", () => {
+      clearInterval(keepalive);
       unsubscribe?.();
       signaling?.disconnect();
     });

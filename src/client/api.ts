@@ -124,6 +124,11 @@ async function connectSignaling(payload: SignalingConnectRequest): Promise<void>
       if (!isCurrent()) return;
       try {
         const parsed = JSON.parse(String(message.data)) as { type?: string; payload?: MainToRendererSignalingEvent };
+        if (parsed.type === "ping") {
+          // Answer keepalives so proxies see traffic in both directions.
+          if (activeSocket.readyState === WebSocket.OPEN) activeSocket.send(JSON.stringify({ type: "pong" }));
+          return;
+        }
         if (parsed.type === "event" && parsed.payload) emitSignaling(parsed.payload);
       } catch {
         emitSignaling({ type: "error", message: "Received an invalid signaling message." });
