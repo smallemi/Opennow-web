@@ -1,12 +1,12 @@
 import crypto from "node:crypto";
 
 const GFN_WINDOWS_USER_AGENT =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 NVIDIACEFClient/HEAD/debb5919f6 GFN-PC/2.0.80.173";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36 NVIDIACEFClient/HEAD/debb5919f6 GFN-PC/2.0.88.129";
 const GFN_MACOS_USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 GFN-PC/2.0.80.173";
+  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 GFN-PC/2.0.88.129";
 
 export const GFN_USER_AGENT = process.platform === "darwin" ? GFN_MACOS_USER_AGENT : GFN_WINDOWS_USER_AGENT;
-export const GFN_CLIENT_VERSION = "2.0.80.173";
+export const GFN_CLIENT_VERSION = "2.0.88.129";
 export const LCARS_CLIENT_ID = "ec7e38d4-03af-4b58-b131-cfb0495903ab";
 
 import { GFN_PLAY_ORIGIN as SHARED_GFN_PLAY_ORIGIN, GFN_PLAY_REFERER as SHARED_GFN_PLAY_REFERER } from "@shared/gfn/endpoints";
@@ -133,22 +133,36 @@ function resolveCloudMatchIdentity(options: GfnCloudMatchHeadersOptions): { clie
   };
 }
 
-export function buildGfnCloudMatchHeaders(options: GfnCloudMatchHeadersOptions): Record<string, string> {
-  const { clientId, deviceId } = resolveCloudMatchIdentity(options);
-  const headers: Record<string, string> = {
-    "User-Agent": GFN_USER_AGENT,
-    Authorization: gfnJwtAuthorization(options.token),
-    "Content-Type": "application/json",
+// CloudMatch allocates the seat's transport from the client identity. A native
+// (NVIDIA-CLASSIC) identity combined with GSStreamerType=WebRTC can be given an
+// RTSP-only seat that never sends a WebRTC offer, so this web client always
+// presents itself as desktop Chrome (matches OpenNOW Android's desktop WebRTC identity).
+export const GFN_BROWSER_CLOUDMATCH_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36";
+export const GFN_BROWSER_PLATFORM_NAME = "browser";
+
+function browserCloudMatchIdentityHeaders(clientId: string, deviceId: string): Record<string, string> {
+  return {
     "nv-browser-type": "CHROME",
     "nv-client-id": clientId,
-    "nv-client-streamer": "NVIDIA-CLASSIC",
-    "nv-client-type": "NATIVE",
+    "nv-client-streamer": "WEBRTC",
+    "nv-client-type": "BROWSER",
     "nv-client-version": GFN_CLIENT_VERSION,
     "nv-device-make": "UNKNOWN",
     "nv-device-model": "UNKNOWN",
-    "nv-device-os": platformToGfnDeviceOs(),
+    "nv-device-os": "WINDOWS",
     "nv-device-type": "DESKTOP",
     "x-device-id": deviceId,
+  };
+}
+
+export function buildGfnCloudMatchHeaders(options: GfnCloudMatchHeadersOptions): Record<string, string> {
+  const { clientId, deviceId } = resolveCloudMatchIdentity(options);
+  const headers: Record<string, string> = {
+    "User-Agent": GFN_BROWSER_CLOUDMATCH_USER_AGENT,
+    Authorization: gfnJwtAuthorization(options.token),
+    "Content-Type": "application/json",
+    ...browserCloudMatchIdentityHeaders(clientId, deviceId),
   };
 
   if (options.includeOrigin !== false) {
@@ -163,17 +177,11 @@ export function buildGfnCloudMatchClaimHeaders(options: GfnCloudMatchHeadersOpti
   const { clientId, deviceId } = resolveCloudMatchIdentity(options);
 
   return {
-    "User-Agent": GFN_USER_AGENT,
+    "User-Agent": GFN_BROWSER_CLOUDMATCH_USER_AGENT,
     Authorization: gfnJwtAuthorization(options.token),
     "Content-Type": "application/json",
     Origin: GFN_PLAY_ORIGIN,
     Referer: GFN_PLAY_REFERER,
-    "nv-client-id": clientId,
-    "nv-client-streamer": "NVIDIA-CLASSIC",
-    "nv-client-type": "NATIVE",
-    "nv-client-version": GFN_CLIENT_VERSION,
-    "nv-device-os": platformToGfnDeviceOs(),
-    "nv-device-type": "DESKTOP",
-    "x-device-id": deviceId,
+    ...browserCloudMatchIdentityHeaders(clientId, deviceId),
   };
 }

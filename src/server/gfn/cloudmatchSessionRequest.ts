@@ -8,7 +8,7 @@ import {
 } from "@shared/gfn";
 
 import type { CloudMatchRequest } from "./types";
-import { buildGfnCloudMatchHeaders } from "./clientHeaders";
+import { buildGfnCloudMatchHeaders, GFN_BROWSER_PLATFORM_NAME } from "./clientHeaders";
 import { getStableDeviceId } from "./deviceId";
 import {
   appLaunchModeWireValue,
@@ -117,7 +117,7 @@ export async function createNetworkTestSession(input: {
   const { width, height } = parseResolution(input.settings.resolution);
   const body = {
     netTestRequestData: {
-      clientPlatformName: "windows",
+      clientPlatformName: GFN_BROWSER_PLATFORM_NAME,
       netTestProfile: {
         widthInPixels: width,
         heightInPixels: height,
@@ -210,7 +210,8 @@ export function buildSessionRequestBody(
     sessionRequestData: {
       appId: input.appId,
       internalTitle: input.internalTitle || null,
-      availableSupportedControllers: [],
+      availableSupportedControllers: [2],
+      preferredController: 2,
       networkTestSessionId,
       parentSessionId: null,
       clientIdentification: "GFN-PC",
@@ -220,7 +221,7 @@ export function buildSessionRequestBody(
       clientVersion: "30.0",
       sdkVersion: "1.0",
       streamerVersion: 1,
-      clientPlatformName: "windows",
+      clientPlatformName: GFN_BROWSER_PLATFORM_NAME,
       clientRequestMonitorSettings: [
         {
           monitorId: 0,
@@ -238,7 +239,7 @@ export function buildSessionRequestBody(
               }
             : {},
           hdr10PlusGamingData: null,
-          dpi: 0,
+          dpi: 100,
         },
       ],
       useOps: true,
@@ -253,7 +254,7 @@ export function buildSessionRequestBody(
           }
         : null,
       surroundAudioInfo: 0,
-      remoteControllersBitmap: 0,
+      remoteControllersBitmap: 1,
       clientTimezoneOffset: timezoneOffsetMs(),
       enhancedStreamMode: 1,
       appLaunchMode: appLaunchModeWireValue(input.settings.appLaunchMode),
@@ -296,14 +297,16 @@ export function buildClaimRequestBody(
     sessionRequestData: {
       // Minimal fields required for resume - NO streaming parameter renegotiation
       audioMode: 2,
-      remoteControllersBitmap: 0,
+      // WebRTC seats use the alliance-compatibility controller fields (upstream build_resume_body).
+      remoteControllersBitmap: 1,
       sdrHdrMode: 0,
       networkTestSessionId: null,
-      availableSupportedControllers: [],
+      availableSupportedControllers: [2],
+      preferredController: 2,
       clientVersion: "30.0",
       deviceHashId: deviceId,
       internalTitle: null,
-      clientPlatformName: "windows",
+      clientPlatformName: GFN_BROWSER_PLATFORM_NAME,
       metaData: [
         { key: "SubSessionId", value: subSessionId },
         { key: "wssignaling", value: "1" },
@@ -331,6 +334,7 @@ export function buildClaimRequestBody(
       secureRTSPSupported: false,
       userAge: 26,
     },
-    metaData: [],
+    metaData: null,
+    adUpdates: null,
   };
 }

@@ -195,6 +195,93 @@ export function extractHostFromUrl(url: string): string | null {
   return host;
 }
 
+export type SessionConnection = {
+  ip?: string | string[];
+  port: number;
+  usage: number;
+  protocol?: number;
+  appLevelProtocol?: number;
+  resourcePath?: string | null;
+};
+
+function firstIp(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  const host = typeof raw === "string" ? raw.trim() : "";
+  if (!host || host.startsWith(".") || host.endsWith(".") || host.includes("..")) return null;
+  return host;
+}
+
+/** RTSP(S) / native-transport descriptors cannot carry WebRTC signaling. */
+export function isRtspSessionConnection(connection: SessionConnection): boolean {
+  const resource = typeof connection.resourcePath === "string" ? connection.resourcePath : "";
+  return resource.startsWith("rtsps://")
+    || resource.startsWith("rtsp://")
+    || connection.usage === 16
+    || connection.appLevelProtocol === 1
+    || connection.appLevelProtocol === 6;
+}
+
+/**
+ * Build the WebRTC signaling base URL for a connectionInfo entry, matching upstream
+ * OpenNOW (Rust `webrtc_signaling_endpoint`, Android `webRtcSignalingUrl`).
+ */
+export function webRtcSignalingUrl(connection: SessionConnection): URL | null {
+  if (connection.usage !== 14 && connection.usage !== 16) return null;
+  const resource = typeof connection.resourcePath === "string" && connection.resourcePath.length > 0
+    ? connection.resourcePath
+    : "/nvst/";
+  const rtsp = resource.startsWith("rtsp://") || resource.startsWith("rtsps://");
+  const absolute = rtsp || resource.startsWith("wss://") || resource.startsWith("https://");
+
+  let url: URL;
+  if (absolute) {
+    try {
+      url = new URL(`https://${resource.slice(resource.indexOf("://") + 3)}`);
+    } catch {
+      return null;
+    }
+    if (url.username || url.password || url.hash || !url.hostname) return null;
+    if (rtsp) {
+      url.port = "";
+      url.pathname = "/nvst/";
+      url.search = "";
+    }
+  } else {
+    if (!resource.startsWith("/") || resource.includes("://")) return null;
+    const host = firstIp(connection.ip);
+    if (!host || host === "0.0.0.0" || host === "::" || host === "[::]") return null;
+    const authority = host.includes(":") && !host.startsWith("[") ? `[${host}]` : host;
+    // For a relative path the entry's port can be the UDP media peer, not the
+    // WebSocket service, so signaling stays on 443.
+    try {
+      url = new URL(`https://${authority}${resource}`);
+    } catch {
+      return null;
+    }
+  }
+  return new URL(url.toString().replace(/^https:/, "wss:"));
+}
+
+export function selectWebRtcSignalingEndpoint(
+  connections: SessionConnection[],
+): { connection: SessionConnection; url: URL } | null {
+  const preferred = connections.filter((connection) => {
+    const resource = typeof connection.resourcePath === "string" ? connection.resourcePath : "";
+    return !isRtspSessionConnection(connection)
+      && (resource.startsWith("wss://") || resource.startsWith("https://") || connection.usage === 14);
+  });
+  const candidates = [
+    ...preferred,
+    ...connections.filter((connection) => connection.usage === 14),
+    ...connections.filter((connection) => connection.usage === 16),
+  ];
+  for (const connection of candidates) {
+    const url = webRtcSignalingUrl(connection);
+    if (url) return { connection, url };
+  }
+  return null;
+}
+
 export function resolveSignaling(response: CloudMatchResponse): {
   serverIp: string;
   signalingServer: string;
@@ -203,6 +290,41 @@ export function resolveSignaling(response: CloudMatchResponse): {
   rtspsEndpoints: string[];
 } {
   const connections = response.session.connectionInfo ?? [];
+
+  const endpoint = selectWebRtcSignalingEndpoint(connections);
+  if (
+    isReadySessionStatus(response.session.status)
+    && connections.length > 0
+    && connections.every(isRtspSessionConnection)
+  ) {
+    console.warn(
+      "[CloudMatch] Seat only exposes RTSP/native-transport endpoints; it will not send a WebRTC offer. " +
+      "End this session and launch again so CloudMatch allocates a WebRTC seat.",
+    );
+  }
+  if (endpoint) {
+    const host = endpoint.url.hostname;
+    const port = endpoint.url.port || "443";
+    const serverIp = firstIp(endpoint.connection.ip) ?? host.replace(/^\[|\]$/g, "");
+    const signalingUrl = endpoint.url.toString();
+    const rtspsHost =
+      connections
+        .map((connection) => typeof connection.resourcePath === "string"
+          ? extractHostFromUrl(connection.resourcePath)
+          : null)
+        .find((candidate): candidate is string => Boolean(candidate)) ??
+      (isZoneHostname(serverIp) ? null : serverIp);
+    return {
+      serverIp,
+      signalingServer: `${host}:${port}`,
+      signalingUrl,
+      mediaConnectionInfo: resolveMediaConnectionInfo(connections, serverIp, {
+        logMissing: isReadySessionStatus(response.session.status),
+      }),
+      rtspsEndpoints: collectRtspsEndpoints(connections, rtspsHost),
+    };
+  }
+
   const signalingConnection =
     connections.find((conn) => conn.usage === 14 && conn.ip) ?? connections.find((conn) => conn.ip);
 
@@ -261,12 +383,12 @@ export function resolveSignaling(response: CloudMatchResponse): {
  *   c. Fallback to serverIp (only for usage=14 Alliance fallback)
  */
 export function resolveMediaConnectionInfo(
-  connections: Array<{ ip?: string; port: number; usage: number; protocol?: number; resourcePath?: string }>,
+  connections: SessionConnection[],
   serverIp: string,
   options?: { logMissing?: boolean },
 ): { ip: string; port: number; usage: number } | undefined {
   // Helper: extract IP from a connection entry
-  const extractIp = (conn: { ip?: string; resourcePath?: string }): string | null => {
+  const extractIp = (conn: { ip?: string | string[]; resourcePath?: string | null }): string | null => {
     // Try direct IP field
     const rawIp = conn.ip;
     const directIp = Array.isArray(rawIp) ? rawIp[0] : rawIp;
@@ -282,7 +404,7 @@ export function resolveMediaConnectionInfo(
   };
 
   // Helper: extract port from a connection entry (fallback to resourcePath URL port)
-  const extractPort = (conn: { port: number; resourcePath?: string }): number => {
+  const extractPort = (conn: { port: number; resourcePath?: string | null }): number => {
     if (conn.port > 0) return conn.port;
 
     // Try extracting port from resourcePath URL
@@ -317,10 +439,10 @@ export function resolveMediaConnectionInfo(
     if (ip && port > 0) return { ip, port, usage: alt.usage };
   }
 
-  // Priority 3: usage=14 with highest port (Alliance fallback)
+  // Priority 3: non-RTSP usage=14 with highest port (Alliance fallback)
   const alliance = connections
-    .filter((c) => c.usage === 14)
-    .sort((a, b) => b.port - a.port);
+    .filter((c) => c.usage === 14 && !isRtspSessionConnection(c))
+    .sort((a, b) => (b.port ?? 0) - (a.port ?? 0));
 
   for (const conn of alliance) {
     const ip = extractIp(conn) ?? serverIp;

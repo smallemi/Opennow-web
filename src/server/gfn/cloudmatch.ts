@@ -43,6 +43,7 @@ import {
   isReadySessionStatus,
   normalizeIceServers,
   resolveSignaling,
+  selectWebRtcSignalingEndpoint,
   streamingServerIp,
 } from "./cloudmatchSignaling";
 import {
@@ -410,12 +411,13 @@ async function fetchActiveSessionsFromBase(
       const rawControlIp = s.sessionControlInfo?.ip as string | string[] | undefined;
       const controlIp = Array.isArray(rawControlIp) ? rawControlIp[0] : rawControlIp;
 
-      const serverIp = connIp ?? controlIp;
+      const endpoint = selectWebRtcSignalingEndpoint(s.connectionInfo ?? []);
+      const serverIp = connIp ?? controlIp ?? endpoint?.url.hostname.replace(/^\[|\]$/g, "");
 
-      const signalingUrl = connIp
-        ? `wss://${connIp}:443/nvst/`
-        : controlIp
-          ? `wss://${controlIp}:443/nvst/`
+      const signalingUrl = endpoint
+        ? endpoint.url.toString()
+        : serverIp
+          ? `wss://${serverIp}:443/nvst/`
           : undefined;
 
       // Extract resolution and fps from monitor settings

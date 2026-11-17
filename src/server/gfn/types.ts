@@ -6,6 +6,7 @@ export interface CloudMatchRequest {
     appId: string;
     internalTitle: string | null;
     availableSupportedControllers: number[];
+    preferredController?: number;
     networkTestSessionId: string | null;
     parentSessionId: string | null;
     clientIdentification: string;
@@ -140,6 +141,7 @@ export interface CloudMatchResponse {
       port: number;
       usage: number;
       protocol?: number;
+      appLevelProtocol?: number;
       resourcePath?: string;
     }>;
     sessionControlInfo?: {
@@ -215,6 +217,8 @@ export interface SessionEntry {
     port: number;
     usage: number;
     protocol?: number;
+    appLevelProtocol?: number;
+    resourcePath?: string;
   }>;
   monitorSettings?: Array<{
     widthInPixels?: number;
