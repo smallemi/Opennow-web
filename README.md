@@ -118,6 +118,7 @@ Settings are environment variables. Copy `.env.example` to `.env`, or pass them 
 | `OPENNOW_RELAY` | No | `off` | [Proxy mode](#proxy-mode): `optional` (visitors can turn it on) or `always`. |
 | `OPENNOW_RELAY_HOST` | With proxy mode | none | Hostname for TURN. Behind Cloudflare, a DNS-only record pointing at the server. |
 | `OPENNOW_RELAY_PORT` | No | `3478` | Public TCP port for TURN. |
+| `OPENNOW_RELAY_PUBLIC_PORT` | No | same as `OPENNOW_RELAY_PORT` | Port browsers are told to use when a firewall redirect or nginx forwards another port (e.g. 443) to the relay. |
 | `OPENNOW_RELAY_TLS_CERT` / `OPENNOW_RELAY_TLS_KEY` | No | none | Certificate and key paths to serve TURN over TLS (`turns:`). |
 | `OPENNOW_RELAY_IP` | No | auto-detected | The server's public IPv4, if it is behind NAT. |
 | `OPENNOW_RELAY_UDP_PORTS` | No | `49152-65535` | UDP range the relay uses towards NVIDIA. |

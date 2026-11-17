@@ -24,6 +24,8 @@ describe("readRelayConfig", () => {
     expect(config.port).toBe(5349);
     expect(config.limits).toEqual({ maxWidth: 1920, maxHeight: 1080, maxFps: 30, maxBitrateMbps: 20 });
     expect(readRelayConfig({ OPENNOW_RELAY: "true" }).mode).toBe("optional");
+    expect(config.publicPort).toBe(5349);
+    expect(readRelayConfig({ OPENNOW_RELAY_PORT: "3478", OPENNOW_RELAY_PUBLIC_PORT: "443" }).publicPort).toBe(443);
   });
 });
 

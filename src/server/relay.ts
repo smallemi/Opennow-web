@@ -16,8 +16,10 @@ export interface RelayConfig {
   mode: RelayMode;
   /** Hostname browsers use to reach TURN. Behind Cloudflare this must be a DNS-only record. */
   host: string;
-  /** Public TCP port for TURN (or TURN over TLS when a certificate is set). */
+  /** TCP port the relay listens on (TURN, or TURN over TLS when a certificate is set). */
   port: number;
+  /** Port browsers are told to use, when a firewall redirect or nginx forwards e.g. 443 to `port`. */
+  publicPort: number;
   tlsCert: string | null;
   tlsKey: string | null;
   relayIp: string | undefined;
@@ -40,6 +42,7 @@ export function readRelayConfig(env: NodeJS.ProcessEnv = process.env): RelayConf
     mode,
     host: env.OPENNOW_RELAY_HOST?.trim() ?? "",
     port: Math.trunc(positive(env.OPENNOW_RELAY_PORT, 3478)),
+    publicPort: Math.trunc(positive(env.OPENNOW_RELAY_PUBLIC_PORT, positive(env.OPENNOW_RELAY_PORT, 3478))),
     tlsCert: env.OPENNOW_RELAY_TLS_CERT?.trim() || null,
     tlsKey: env.OPENNOW_RELAY_TLS_KEY?.trim() || null,
     relayIp: env.OPENNOW_RELAY_IP?.trim() || undefined,
@@ -136,7 +139,7 @@ class StreamRelay {
     const relay = createRelay({
       enabled: true,
       turnListen,
-      publicPort: config.port,
+      publicPort: config.publicPort,
       tls: useTls,
       relayIp: config.relayIp,
       relayPorts: config.udpPorts,
@@ -162,7 +165,8 @@ class StreamRelay {
     const limits = config.limits;
     console.log(
       `[Relay] Proxy mode ${config.mode === "always" ? "forced for every stream" : "available"}: ` +
-        `${useTls ? "turns" : "turn"}:${config.host}:${config.port} (TCP), media UDP ${config.udpPorts}, ` +
+        `${useTls ? "turns" : "turn"}:${config.host}:${config.publicPort} (TCP` +
+        `${config.publicPort !== config.port ? `, listening on ${config.port}` : ""}), media UDP ${config.udpPorts}, ` +
         `limits ${limits.maxWidth}x${limits.maxHeight}@${limits.maxFps} ${limits.maxBitrateMbps} Mbps`,
     );
     const stop = () => void this.stop();
