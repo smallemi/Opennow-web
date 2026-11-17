@@ -1,8 +1,49 @@
+# Dependencies
 node_modules/
+
+# Build output
 dist/
 dist-server/
+*.tsbuildinfo
+.vite/
+
+# Local runtime data (device ID, caches, thumbnails, sessions)
 .opennow-data/
+
+# Environment / secrets
 .env
 .env.*
 !.env.example
+*.pem
+*.key
+
+# Logs
+logs/
+*.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Test & coverage
+coverage/
+.vitest/
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors / IDEs
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.swp
+*.swo
+*~
+
+# Misc
+.cache/
+tmp/
+temp/
