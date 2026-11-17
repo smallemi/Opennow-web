@@ -58,6 +58,8 @@ Streams used to fail with `Resume attach failed` / `signaling connection closed`
 ### New features
 
 - 🔒 **[Private instance](#private-instance)**: an optional password gate, turned on with an environment variable.
+- 🏷️ **Custom branding**: set the tab title and favicon with `OPENNOW_SITE_TITLE` and `OPENNOW_FAVICON_URL`.
+- 📶 **Proxy-friendly streaming**: a keepalive on the signaling bridge, so Cloudflare's 100-second idle timeout no longer ends running streams.
 
 ### Housekeeping
 
@@ -108,7 +110,19 @@ Settings are environment variables. Copy `.env.example` to `.env`, or pass them 
 | `PORT` | No | `3000` | The HTTP port. |
 | `OPENNOW_INSTANCE_PASSWORD` | No | *(unset = public)* | Turns on [private mode](#private-instance) with this password. |
 | `OPENNOW_INSTANCE_REMEMBER_DAYS` | No | `30` | How long a "Remember this device" unlock lasts. |
+| `OPENNOW_SITE_TITLE` | No | `OpenNOW` | Text shown in the browser tab. |
+| `OPENNOW_FAVICON_URL` | No | OpenNOW logo | Tab icon: a full link (`https://example.com/icon.png`) or a path on this site (`/my-icon.png`, from `public/`). |
 | `OPENNOW_DATA_DIR` | No | `.opennow-data` | Where the device ID, caches, and thumbnails are stored. |
+
+### Example `.env`
+
+```bash
+SESSION_SECRET=replace-with-at-least-32-random-characters
+OPENNOW_ORIGIN=https://cloud.example.com
+OPENNOW_INSTANCE_PASSWORD=your-password
+OPENNOW_SITE_TITLE=Emi's Cloud
+OPENNOW_FAVICON_URL=https://example.com/icon.png
+```
 
 ---
 

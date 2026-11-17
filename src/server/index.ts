@@ -1,8 +1,10 @@
 import { createServer } from "node:http";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import express from "express";
 
 import { registerApi } from "./api";
+import { applySiteBranding, siteBranding } from "./branding";
 import { instanceAccess, instanceGateMiddleware, registerInstanceAccessRoutes } from "./instanceAccess";
 import { attachSignalingBridge } from "./signalingBridge";
 import { cacheManager } from "./services/cacheManager";
@@ -39,6 +41,9 @@ app.use((request, _response, next) => {
 
 registerInstanceAccessRoutes(app);
 app.use(instanceGateMiddleware());
+if (siteBranding.title || siteBranding.faviconUrl) {
+  console.log(`[Branding] title=${siteBranding.title ?? "(default)"} favicon=${siteBranding.faviconUrl ?? "(default)"}`);
+}
 if (instanceAccess.enabled) console.log("[Instance] Private mode enabled: a password is required to use this instance.");
 
 registerApi(app);
@@ -46,11 +51,21 @@ attachSignalingBridge(server);
 
 if (process.env.NODE_ENV === "production") {
   const staticDir = resolve("dist");
+  const indexHtml = applySiteBranding(readFileSync(resolve(staticDir, "index.html"), "utf8"), siteBranding);
+  const sendIndex = (_request: express.Request, response: express.Response) => {
+    response.setHeader("Cache-Control", "no-cache");
+    response.type("html").send(indexHtml);
+  };
+  app.get("/index.html", sendIndex);
   app.use(express.static(staticDir, { index: false, maxAge: "1h" }));
-  app.get("/{*path}", (_request, response) => response.sendFile(resolve(staticDir, "index.html")));
+  app.get("/{*path}", sendIndex);
 } else {
   const { createServer: createViteServer } = await import("vite");
-  const vite = await createViteServer({ server: { middlewareMode: true }, appType: "spa" });
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+    plugins: [{ name: "opennow-site-branding", transformIndexHtml: (html) => applySiteBranding(html, siteBranding) }],
+  });
   app.use(vite.middlewares);
 }
 
