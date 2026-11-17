@@ -13,6 +13,13 @@ type ClientMessage =
   | { type: "keyframe"; payload: KeyframeRequest }
   | { type: "disconnect" };
 
+function parseResolution(value: unknown): { width: number; height: number } | undefined {
+  if (typeof value !== "string") return undefined;
+  const match = /^(\d{3,5})x(\d{3,5})$/.exec(value.trim());
+  if (!match) return undefined;
+  return { width: Number(match[1]), height: Number(match[2]) };
+}
+
 function originAllowed(request: IncomingMessage): boolean {
   const origin = request.headers.origin;
   if (!origin) return process.env.NODE_ENV !== "production";
@@ -56,7 +63,10 @@ export function attachSignalingBridge(server: HttpServer): void {
           }
           signaling?.disconnect();
           unsubscribe?.();
-          signaling = new GfnSignalingClient(input.signalingServer, input.sessionId, input.signalingUrl);
+          signaling = new GfnSignalingClient(input.signalingServer, input.sessionId, input.signalingUrl, {
+            reconnect: input.reconnect === true,
+            resolution: parseResolution(input.resolution),
+          });
           unsubscribe = signaling.onEvent((event) => send({ type: "event", payload: event }));
           await signaling.connect();
         } else if (message.type === "answer") {

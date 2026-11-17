@@ -8,13 +8,21 @@ import type {
   MainToRendererSignalingEvent,
   SendAnswerRequest,
 } from "@shared/gfn";
-import { GFN_PLAY_ORIGIN, GFN_USER_AGENT } from "./clientHeaders";
+import { GFN_PLAY_ORIGIN } from "./clientHeaders";
+
+export const SIGNALING_VERSION = "3.0";
+const SIGNALING_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/131.0.0.0 Safari/537.36";
+
+export interface GfnSignalingOptions {
+  reconnect?: boolean;
+  resolution?: { width: number; height: number };
+}
 
 interface SignalingMessage {
   ackid?: number;
   ack?: number;
   hb?: number;
-  error?: string;
+  error?: unknown;
   peer_info?: {
     id: number;
     name?: string;
@@ -30,7 +38,7 @@ export class GfnSignalingClient {
   private ws: WebSocket | null = null;
   private peerId = 0;
   private remotePeerId = 1;
-  private peerName = `peer-${Math.floor(Math.random() * 10_000_000_000)}`;
+  private peerName = `peer-${randomBytes(12).toString("hex")}`;
   private ackCounter = 0;
   private heartbeatTimer: NodeJS.Timeout | null = null;
   private connectionGeneration = 0;
@@ -40,24 +48,17 @@ export class GfnSignalingClient {
     private readonly signalingServer: string,
     private readonly sessionId: string,
     private readonly signalingUrl?: string,
+    private readonly options: GfnSignalingOptions = {},
   ) {}
 
   private buildSignInUrl(): string {
-    const fallbackHost = this.signalingServer.includes(":")
-      ? this.signalingServer
-      : `${this.signalingServer}:443`;
-    const baseUrl = this.signalingUrl?.trim() || `wss://${fallbackHost}/nvst/`;
-    const signInUrl = new URL(baseUrl);
-
-    signInUrl.protocol = "wss:";
-    signInUrl.pathname = `${signInUrl.pathname.replace(/\/?$/, "/")}sign_in`;
-    signInUrl.search = "";
-    signInUrl.searchParams.set("peer_id", this.peerName);
-    signInUrl.searchParams.set("version", "2");
-    signInUrl.searchParams.set("peer_role", "1");
-    signInUrl.searchParams.set("pairing_id", this.sessionId);
-
-    const url = signInUrl.toString();
+    const url = buildSignInUrl({
+      signalingServer: this.signalingServer,
+      signalingUrl: this.signalingUrl,
+      sessionId: this.sessionId,
+      peerName: this.peerName,
+      reconnect: this.options.reconnect === true,
+    });
     console.log("[Signaling] URL:", url, "(server:", this.signalingServer, ", signalingUrl:", this.signalingUrl, ")");
     return url;
   }
@@ -103,16 +104,7 @@ export class GfnSignalingClient {
   private sendPeerInfo(): void {
     this.sendJson({
       ackid: this.nextAckId(),
-      peer_info: {
-        browser: "Chrome",
-        browserVersion: "131",
-        connected: true,
-        id: this.peerId,
-        name: this.peerName,
-        peerRole: 0,
-        resolution: "1920x1080",
-        version: 2,
-      },
+      peer_info: buildPeerInfo(this.peerId, this.peerName, this.options.resolution),
     });
   }
 
@@ -134,11 +126,10 @@ export class GfnSignalingClient {
       const urlHost = url.replace(/^wss?:\/\//, "").split("/")[0];
 
       const ws = new WebSocket(url, protocol, {
-        rejectUnauthorized: false,
         headers: {
           Host: urlHost,
           Origin: GFN_PLAY_ORIGIN,
-          "User-Agent": GFN_USER_AGENT,
+          "User-Agent": SIGNALING_USER_AGENT,
           "Sec-WebSocket-Key": randomBytes(16).toString("base64"),
         },
       });
@@ -219,6 +210,13 @@ export class GfnSignalingClient {
     if (parsed.error === "peerRemoved") {
       console.log("[Signaling] Received peerRemoved signaling error");
       this.emit({ type: "disconnected", reason: "peerRemoved" });
+      return;
+    }
+
+    if (parsed.error !== undefined && parsed.error !== null) {
+      const detail = typeof parsed.error === "string" ? parsed.error : JSON.stringify(parsed.error);
+      console.warn("[Signaling] Server rejected signaling request:", detail);
+      this.emit({ type: "error", message: `Server rejected signaling request: ${detail}` });
       return;
     }
 
@@ -358,6 +356,51 @@ export class GfnSignalingClient {
       socket.close();
     }
   }
+}
+
+export function buildSignInUrl(input: {
+  signalingServer: string;
+  signalingUrl?: string;
+  sessionId: string;
+  peerName: string;
+  reconnect?: boolean;
+}): string {
+  const fallbackHost = input.signalingServer.includes(":")
+    ? input.signalingServer
+    : `${input.signalingServer}:443`;
+  const baseUrl = input.signalingUrl?.trim() || `wss://${fallbackHost}/nvst/`;
+  const parsed = new URL(baseUrl);
+  const authority = baseUrl.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split(/[/?#]/)[0] || parsed.host;
+  const basePath = parsed.pathname.replace(/\/+$/, "");
+  const path = basePath.endsWith("/sign_in") ? basePath : `${basePath}/sign_in`;
+  return (
+    `wss://${authority}${path}` +
+    `?peer_id=${encodeURIComponent(input.peerName)}` +
+    `&version=${SIGNALING_VERSION}` +
+    `&peer_role=1` +
+    `&pairing_id=${encodeURIComponent(input.sessionId)}` +
+    (input.reconnect ? "&reconnect=1" : "")
+  );
+}
+
+export function buildPeerInfo(
+  peerId: number,
+  peerName: string,
+  resolution?: { width: number; height: number },
+): Record<string, unknown> {
+  const width = resolution && resolution.width > 0 ? Math.round(resolution.width) : 1920;
+  const height = resolution && resolution.height > 0 ? Math.round(resolution.height) : 1080;
+  return {
+    browser: "Chrome",
+    browserVersion: "131.0.0.0",
+    connected: true,
+    id: peerId,
+    name: peerName,
+    peer_role: 1,
+    resolution: `${width}x${height}`,
+    version: 3,
+    signalingVersion: SIGNALING_VERSION,
+  };
 }
 
 function isTcpIceCandidate(candidate: string): boolean {

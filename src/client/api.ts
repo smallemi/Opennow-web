@@ -87,19 +87,35 @@ function sendSignal(type: string, payload?: unknown): Promise<void> {
   return Promise.resolve();
 }
 
+// Closing a replaced bridge must stay silent: its close event arrives after the
+// next attach has started and would otherwise be reported as a pre-ICE failure.
+function closeSignalingSocket(target: WebSocket | null): void {
+  if (!target) return;
+  target.onopen = null;
+  target.onerror = null;
+  target.onmessage = null;
+  target.onclose = null;
+  if (target.readyState === WebSocket.CONNECTING || target.readyState === WebSocket.OPEN) {
+    target.close(1000, "replaced");
+  }
+}
+
 async function connectSignaling(payload: SignalingConnectRequest): Promise<void> {
-  socket?.close();
+  closeSignalingSocket(socket);
+  socket = null;
   const protocol = location.protocol === "https:" ? "wss:" : "ws:";
-  socket = new WebSocket(`${protocol}//${location.host}/api/signaling`);
+  const activeSocket = new WebSocket(`${protocol}//${location.host}/api/signaling`);
+  socket = activeSocket;
+  const isCurrent = (): boolean => socket === activeSocket;
   await new Promise<void>((resolve, reject) => {
-    const activeSocket = socket;
-    if (!activeSocket) return reject(new Error("Unable to create signaling connection."));
     activeSocket.onopen = () => {
+      if (!isCurrent()) return reject(new Error("Signaling connection was replaced."));
       activeSocket.send(JSON.stringify({ type: "connect", payload: { ...payload, nativeStreamer: undefined } }));
       resolve();
     };
     activeSocket.onerror = () => reject(new Error("Unable to open the signaling bridge."));
     activeSocket.onmessage = (message) => {
+      if (!isCurrent()) return;
       try {
         const parsed = JSON.parse(String(message.data)) as { type?: string; payload?: MainToRendererSignalingEvent };
         if (parsed.type === "event" && parsed.payload) emitSignaling(parsed.payload);
@@ -107,8 +123,21 @@ async function connectSignaling(payload: SignalingConnectRequest): Promise<void>
         emitSignaling({ type: "error", message: "Received an invalid signaling message." });
       }
     };
-    activeSocket.onclose = (event) => emitSignaling({ type: "disconnected", reason: event.reason || "bridge closed" });
+    activeSocket.onclose = (event) => {
+      if (!isCurrent()) return;
+      socket = null;
+      emitSignaling({ type: "disconnected", reason: event.reason || "bridge closed" });
+    };
   });
+}
+
+async function disconnectSignaling(): Promise<void> {
+  const current = socket;
+  socket = null;
+  if (current?.readyState === WebSocket.OPEN) {
+    current.send(JSON.stringify({ type: "disconnect" }));
+  }
+  closeSignalingSocket(current);
 }
 
 const screenshots: ScreenshotEntry[] = [];
@@ -262,7 +291,7 @@ const bridge: OpenNowApi = {
   getNativeCloudGsyncCapabilities: async () => unsupportedNativeCloudGsyncCapabilities("Browser WebRTC mode"),
   showSessionConflictDialog: async () => "resume",
   connectSignaling,
-  disconnectSignaling: async () => { if (socket?.readyState === WebSocket.OPEN) await sendSignal("disconnect"); socket?.close(); socket = null; },
+  disconnectSignaling,
   sendAnswer: (payload: SendAnswerRequest) => sendSignal("answer", payload),
   sendIceCandidate: (payload: IceCandidatePayload) => sendSignal("ice", payload),
   sendNativeInput: () => {},

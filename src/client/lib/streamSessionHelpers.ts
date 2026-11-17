@@ -24,6 +24,23 @@ export function isExpectedNativeSessionClose(reason: string): boolean {
     normalized === "signaling disconnected: socket closed";
 }
 
+/** Server-initiated session end on the signaling channel (not a transport drop). */
+export function isRemoteSessionEndReason(reason: string): boolean {
+  const normalized = reason.trim().toLowerCase();
+  return normalized === "bye" ||
+    normalized === "peerremoved" ||
+    normalized === "peer removed";
+}
+
+/** A transport-level close without a server reason (e.g. WebSocket 1006). */
+export function isGenericSignalingClose(reason: string): boolean {
+  const normalized = reason.trim().toLowerCase();
+  return normalized === "" ||
+    normalized === "socket closed" ||
+    normalized === "bridge closed" ||
+    normalized === "signaling disconnected: socket closed";
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }

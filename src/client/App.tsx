@@ -45,6 +45,8 @@ import {
   SIGNALING_RECOVERY_STABLE_RESET_DELAY_MS,
   SIGNALING_REMOTE_ICE_GRACE_MS,
   isExpectedNativeSessionClose,
+  isGenericSignalingClose,
+  isRemoteSessionEndReason,
   readStreamClipboardText,
   sendStreamClipboardPaste,
   sleep,
@@ -411,6 +413,8 @@ export function App(): JSX.Element {
   const latestIceConnectionStateRef = useRef<RTCIceConnectionState>("new");
   const iceDisconnectedRecoveryTimerRef = useRef<number | null>(null);
   const pendingControlledDisconnectsRef = useRef(0);
+  const lastSignalingErrorRef = useRef<string | null>(null);
+  const preIceSignalingRetryRef = useRef<{ sessionId: string | null }>({ sessionId: null });
   const signalingRecoveryRef = useRef<SignalingRecoveryState>({
     attemptCount: 0,
     inFlight: null,
@@ -635,6 +639,8 @@ export function App(): JSX.Element {
     hasConfirmedRemoteIceRef.current = false;
     latestIceConnectionStateRef.current = "new";
     pendingControlledDisconnectsRef.current = 0;
+    lastSignalingErrorRef.current = null;
+    preIceSignalingRetryRef.current = { sessionId: null };
     discordStreamingActivitySessionRef.current = null;
     signalingRecoveryRef.current.attemptCount = 0;
     signalingRecoveryRef.current.inFlight = null;
@@ -778,6 +784,8 @@ export function App(): JSX.Element {
     hasConfirmedRemoteIceRef.current = false;
     latestIceConnectionStateRef.current = "new";
     pendingControlledDisconnectsRef.current = 0;
+    lastSignalingErrorRef.current = null;
+    preIceSignalingRetryRef.current = { sessionId: null };
     signalingRecoveryRef.current.generation += 1;
     signalingRecoveryRef.current.attemptCount = 0;
     signalingRecoveryRef.current.inFlight = null;
@@ -806,6 +814,8 @@ export function App(): JSX.Element {
     hasConfirmedRemoteIceRef.current = false;
     latestIceConnectionStateRef.current = "new";
     pendingControlledDisconnectsRef.current = 0;
+    lastSignalingErrorRef.current = null;
+    preIceSignalingRetryRef.current = { sessionId: null };
     signalingRecoveryRef.current.generation += 1;
     signalingRecoveryRef.current.explicitShutdown = true;
     signalingRecoveryRef.current.inFlight = null;
@@ -840,8 +850,11 @@ export function App(): JSX.Element {
   }, [resetSignalingRecoveryState]);
 
   const disconnectSignalingControlled = useCallback(async (): Promise<void> => {
-    pendingControlledDisconnectsRef.current += 1;
+    // The bridge detaches its listeners before closing, so a controlled teardown
+    // emits no "disconnected" event and must not consume a future real disconnect.
     await window.openNow.disconnectSignaling().catch(() => {});
+    lastSignalingErrorRef.current = null;
+    preIceSignalingRetryRef.current = { sessionId: null };
   }, []);
 
   // Session ref sync
@@ -1215,12 +1228,17 @@ export function App(): JSX.Element {
     toggleRecording: "",
   }), [shortcuts]);
 
-  const buildSignalingConnectRequest = useCallback((activeSession: SessionInfo): SignalingConnectRequest => {
+  const buildSignalingConnectRequest = useCallback((
+    activeSession: SessionInfo,
+    options: { reconnect?: boolean } = {},
+  ): SignalingConnectRequest => {
     const streamSettings = buildCurrentStreamSettings();
     return {
       sessionId: activeSession.sessionId,
       signalingServer: activeSession.signalingServer,
       signalingUrl: activeSession.signalingUrl,
+      reconnect: options.reconnect === true,
+      resolution: streamSettings.resolution,
       nativeStreamer: buildNativeStreamerSessionContext(activeSession, streamSettings, nativeStreamerShortcuts),
     };
   }, [buildCurrentStreamSettings, nativeStreamerShortcuts]);
@@ -1771,7 +1789,9 @@ export function App(): JSX.Element {
     setQueuePosition(undefined);
     setLaunchError(null);
     setStreamStatus("connecting");
-    await window.openNow.connectSignaling(buildSignalingConnectRequest(claimed));
+    await window.openNow.connectSignaling(
+      buildSignalingConnectRequest(claimed, { reconnect: expectedRecoveryGeneration !== undefined }),
+    );
   }, [buildSignalingConnectRequest, disconnectSignalingControlled, isRecoveryGenerationCurrent]);
 
   const claimAndConnectSession = useCallback(async (existingSession: ActiveSessionInfo): Promise<void> => {
@@ -2175,6 +2195,7 @@ export function App(): JSX.Element {
       try {
         if (event.type === "offer") {
           pendingControlledDisconnectsRef.current = 0;
+          lastSignalingErrorRef.current = null;
           const activeSession = sessionRef.current;
           if (!activeSession) {
             console.warn("[App] Received offer but no active session in sessionRef!");
@@ -2353,7 +2374,7 @@ export function App(): JSX.Element {
             console.log("[Recovery] Ignoring signaling disconnect during app shutdown");
             return;
           }
-          if (streamStatusRef.current !== "idle" && isExpectedNativeSessionClose(event.reason)) {
+          if (streamStatusRef.current !== "idle" && isRemoteSessionEndReason(event.reason)) {
             handleExpectedNativeSessionClose(event.reason);
             return;
           }
@@ -2375,16 +2396,54 @@ export function App(): JSX.Element {
             console.log(`[Recovery] Ignoring signaling disconnect while ICE state is ${iceState}`);
             return;
           }
-          // Official-style behavior: if the attach never reached a confirmed remote ICE
-          // handshake, do not auto-recover. Fail this attempt and require explicit resume.
-          if (!hasConfirmedRemoteIceRef.current) {
-            console.warn("[Recovery] Skipping auto-recovery: disconnected before remote ICE handshake");
+          // A generic socket close before remote ICE (e.g. a 1006 drop) is neither a
+          // session end nor a server rejection, so let the bounded recovery reclaim the
+          // session with `reconnect=1`. Anything else fails this attach attempt.
+          const rejectionDetail = lastSignalingErrorRef.current;
+          const retrySession = sessionRef.current;
+          if (
+            !hasConfirmedRemoteIceRef.current
+            && !rejectionDetail
+            && isGenericSignalingClose(event.reason)
+            && retrySession
+            && streamStatusRef.current !== "idle"
+            && !signalingRecoveryRef.current.explicitShutdown
+            && preIceSignalingRetryRef.current.sessionId !== retrySession.sessionId
+          ) {
+            preIceSignalingRetryRef.current = { sessionId: retrySession.sessionId };
+            console.warn("[Recovery] Signaling closed before remote ICE; retrying sign-in with reconnect=1", {
+              reason: event.reason,
+              sessionId: retrySession.sessionId,
+            });
+            clientRef.current?.dispose();
+            clientRef.current = null;
+            await sleep(1000);
+            if (sessionRef.current?.sessionId !== retrySession.sessionId || signalingRecoveryRef.current.explicitShutdown) {
+              return;
+            }
+            await window.openNow.connectSignaling(buildSignalingConnectRequest(retrySession, { reconnect: true }));
+            return;
+          }
+          if (
+            !hasConfirmedRemoteIceRef.current
+            && (
+              rejectionDetail
+              || !isGenericSignalingClose(event.reason)
+              || !RECOVERABLE_STREAM_STATUSES.includes(streamStatusRef.current)
+            )
+          ) {
+            console.warn("[Recovery] Skipping auto-recovery: disconnected before remote ICE handshake", {
+              reason: event.reason,
+              rejectionDetail,
+            });
             clientRef.current?.dispose();
             clientRef.current = null;
             setLaunchError({
               stage: streamStatusToLoadingStage(streamStatusRef.current),
               title: t("errors.sessionConnectionLostTitle"),
-              description: t("errors.resumeAttachFailedDescription"),
+              description: rejectionDetail
+                ? `${t("errors.resumeAttachFailedDescription")} (${rejectionDetail})`
+                : t("errors.resumeAttachFailedDescription"),
             });
             resetLaunchRuntime({ keepLaunchError: true, keepStreamingContext: true });
             void refreshNavbarActiveSession();
@@ -2428,6 +2487,9 @@ export function App(): JSX.Element {
           }
         } else if (event.type === "error") {
           console.error("Signaling error:", event.message);
+          if (event.message.startsWith("Server rejected signaling request")) {
+            lastSignalingErrorRef.current = event.message;
+          }
         }
       } catch (error) {
         if (appUnloadingRef.current) {
@@ -2457,7 +2519,7 @@ export function App(): JSX.Element {
     });
 
     return () => unsubscribe();
-  }, [attemptSessionRecovery, diagnosticsStore, handleExpectedNativeSessionClose, markDiscordStreamStarted, nativeInputBridgeReady, refreshNavbarActiveSession, resetLaunchRuntime, scheduleStableRecoveryReset, settings, streamMicLevel, streamVolume, t]);
+  }, [attemptSessionRecovery, buildSignalingConnectRequest, diagnosticsStore, handleExpectedNativeSessionClose, markDiscordStreamStarted, nativeInputBridgeReady, refreshNavbarActiveSession, resetLaunchRuntime, scheduleStableRecoveryReset, settings, streamMicLevel, streamVolume, t]);
 
   // Play game handler
   const handlePlayGame = useCallback(async (game: GameInfo, options?: { bypassGuards?: boolean; streamingBaseUrl?: string; variantId?: string }) => {

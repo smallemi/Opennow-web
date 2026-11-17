@@ -23,6 +23,8 @@ export {
   SIGNALING_RECOVERY_STABLE_RESET_DELAY_MS,
   SIGNALING_REMOTE_ICE_GRACE_MS,
   isExpectedNativeSessionClose,
+  isGenericSignalingClose,
+  isRemoteSessionEndReason,
   readStreamClipboardText,
   sendStreamClipboardPaste,
   sleep,

@@ -5,6 +5,10 @@ export interface SignalingConnectRequest {
   sessionId: string;
   signalingServer: string;
   signalingUrl?: string;
+  /** Adds `reconnect=1` to the sign-in URL; set when re-attaching after a failed or dropped attempt. */
+  reconnect?: boolean;
+  /** Requested stream resolution, e.g. "1920x1080", reported in peer_info. */
+  resolution?: string;
   nativeStreamer?: NativeStreamerSessionContext;
 }
 
